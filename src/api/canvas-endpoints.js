@@ -4,6 +4,8 @@ const canvasManager = require('../canvas/canvas-manager');
 const BackgroundRemoval = require('../canvas/background-removal');
 const TextRenderer = require('../fonts/text-renderer');
 const Vectorizer = require('../vectorization/vectorizer');
+const cacheManager = require('../utils/cache-manager');
+const performanceMonitor = require('../utils/performance-monitor');
 
 const router = express.Router();
 
@@ -31,7 +33,14 @@ const upload = multer({
  */
 router.post('/remove', upload.single('image'), async (req, res) => {
   try {
+    const operationId = `bg-remove-${Date.now()}`;
+    performanceMonitor.startTimer(operationId, { 
+      method: req.body.method || 'color',
+      fileSize: req.file ? req.file.size : 0 
+    });
+
     if (!req.file) {
+      performanceMonitor.endTimer(operationId, false, new Error('No image file provided'));
       return res.status(400).json({ error: 'No image file provided' });
     }
 
@@ -41,6 +50,19 @@ router.post('/remove', upload.single('image'), async (req, res) => {
       method = 'color',
       outputFormat = 'png'
     } = req.body;
+
+    // Check cache for processed image
+    const cachedResult = await cacheManager.getCachedProcessedImage(
+      req.file.buffer, 
+      { method, targetColor: parsedTargetColor, tolerance }
+    );
+
+    if (cachedResult) {
+      performanceMonitor.endTimer(operationId, true);
+      res.setHeader('Content-Type', `image/${outputFormat}`);
+      res.setHeader('X-Cache', 'HIT');
+      return res.send(cachedResult);
+    }
 
     // Initialize canvas with uploaded image
     const { canvasId } = await canvasManager.initializeWithImage(req.file.buffer);
@@ -80,7 +102,16 @@ router.post('/remove', upload.single('image'), async (req, res) => {
     // Convert to buffer and send response
     const resultBuffer = canvasManager.toBuffer(resultCanvasId, outputFormat);
     
+    // Cache the result
+    await cacheManager.cacheProcessedImage(
+      req.file.buffer,
+      { method, targetColor: parsedTargetColor, tolerance },
+      resultBuffer
+    );
+
+    performanceMonitor.endTimer(operationId, true);
     res.setHeader('Content-Type', `image/${outputFormat}`);
+    res.setHeader('X-Cache', 'MISS');
     res.setHeader('Content-Disposition', `attachment; filename="background_removed.${outputFormat}"`);
     res.send(resultBuffer);
 
@@ -88,6 +119,7 @@ router.post('/remove', upload.single('image'), async (req, res) => {
     canvasManager.cleanup(canvasId);
 
   } catch (error) {
+    performanceMonitor.endTimer(operationId, false, error);
     console.error('Background removal error:', error);
     res.status(500).json({ error: error.message });
   }

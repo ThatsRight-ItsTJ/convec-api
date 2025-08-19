@@ -1,7 +1,12 @@
 const canvasManager = require('../canvas/canvas-manager');
+const WorkerPool = require('../utils/worker-pool');
+const performanceMonitor = require('../utils/performance-monitor');
+const path = require('path');
 
 class Vectorizer {
   constructor() {
+    this.workerPool = null;
+    this.useWorkers = process.env.USE_WORKER_THREADS === 'true';
     this.defaultOptions = {
       turdsize: 5,
       turnpolicy: 'minority',
@@ -9,6 +14,23 @@ class Vectorizer {
       opttolerance: 1,
       optcurve: true
     };
+
+    if (this.useWorkers) {
+      this.initializeWorkerPool();
+    }
+  }
+
+  /**
+   * Initialize worker pool for CPU-intensive operations
+   */
+  initializeWorkerPool() {
+    try {
+      const workerFile = path.join(__dirname, '../workers/vectorization-worker.js');
+      this.workerPool = new WorkerPool(workerFile, 2);
+    } catch (error) {
+      console.warn('Failed to initialize worker pool:', error.message);
+      this.useWorkers = false;
+    }
   }
 
   /**

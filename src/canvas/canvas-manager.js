@@ -1,5 +1,7 @@
 const { createCanvas, loadImage } = require('canvas');
 const config = require('../config/canvas');
+const memoryManager = require('../utils/memory-manager');
+const performanceMonitor = require('../utils/performance-monitor');
 
 class CanvasManager {
   constructor() {
@@ -11,6 +13,9 @@ class CanvasManager {
    * Create a new canvas with specified dimensions
    */
   createCanvas(width = config.defaultCanvasSize.width, height = config.defaultCanvasSize.height) {
+    const operationId = `canvas-create-${Date.now()}`;
+    performanceMonitor.startTimer(operationId, { width, height });
+    
     if (width > config.maxImageSize) width = config.maxImageSize;
     if (height > config.maxImageSize) height = config.maxImageSize;
 
@@ -20,6 +25,7 @@ class CanvasManager {
     const canvasId = this.generateId();
     this.canvases.set(canvasId, { canvas, ctx, created: Date.now() });
     
+    performanceMonitor.endTimer(operationId, true);
     return { canvasId, canvas, ctx };
   }
 
