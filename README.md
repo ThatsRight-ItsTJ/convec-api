@@ -53,6 +53,11 @@ npm start
 - `POST /api/background/replace` - Replace background with color/image
 - `POST /api/background/batch` - Batch processing
 
+### Vectorization
+
+- `POST /api/vectorize` - Convert images to vectors
+- `POST /api/process/complete` - Background removal + vectorization
+
 ### Font Management
 
 - `GET /api/fonts/list` - List available fonts
@@ -83,6 +88,26 @@ curl -X POST http://localhost:3000/api/background/remove \
   --output result.png
 ```
 
+### Vectorization
+
+```bash
+# Pure vectorization
+curl -X POST http://localhost:3000/api/vectorize \
+  -F "image=@input.png" \
+  -F "scale=2" \
+  -F "outputFormat=svg" \
+  --output result.svg
+
+# Background removal + vectorization
+curl -X POST http://localhost:3000/api/process/complete \
+  -F "image=@input.png" \
+  -F "targetColor=#ffffff" \
+  -F "tolerance=15" \
+  -F "scale=1.5" \
+  -F "outputFormat=svg" \
+  --output vectorized.svg
+```
+
 ### Text Rendering
 
 ```bash
@@ -97,6 +122,21 @@ curl -X POST http://localhost:3000/api/text/render \
     "height": 400
   }' \
   --output text.png
+```
+
+### Text Vectorization
+
+```bash
+curl -X POST http://localhost:3000/api/text/vectorize \
+  -H "Content-Type: application/json" \
+  -d '{
+    "text": "Vector Text",
+    "fontFamily": "Arial",
+    "fontSize": 72,
+    "color": "#000000",
+    "outputFormat": "svg"
+  }' \
+  --output text.svg
 ```
 
 ### Custom Font Upload
@@ -168,6 +208,9 @@ src/
 - ✅ **Memory Efficient** - Automatic cleanup and optimization
 - ✅ **Extensible** - Easy to add new processing methods
 - ✅ **Production Ready** - Error handling and validation
+- ✅ **Full Vectorization** - Server-side SVG generation
+- ✅ **Combined Processing** - Background removal + vectorization in one step
+- ✅ **Text Vectorization** - Convert rendered text to scalable vectors
 
 ## License
 

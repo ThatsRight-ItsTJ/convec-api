@@ -1,6 +1,7 @@
 const canvasManager = require('../canvas/canvas-manager');
 const fontManager = require('./font-manager');
 const config = require('../config/fonts');
+const Vectorizer = require('../vectorization/vectorizer');
 
 class TextRenderer {
   /**
@@ -260,13 +261,24 @@ class TextRenderer {
   /**
    * Render text and convert to vectors
    */
-  static async renderToVectors(options = {}) {
+  static async renderToVectors(options = {}, vectorizeOptions = {}) {
     const { canvasId, canvas } = await this.renderText(options);
     
     try {
-      // Here you would integrate with the existing Convec vectorization
-      // For now, return the canvas for further processing
-      return { canvasId, canvas };
+      // Vectorize the rendered text
+      const defaultVectorizeOptions = {
+        scale: 1,
+        fillColor: options.color || '#000000',
+        threshold: 128,
+        turdsize: 2, // Lower threshold for text details
+        optcurve: true,
+        opttolerance: 0.5
+      };
+
+      const finalOptions = { ...defaultVectorizeOptions, ...vectorizeOptions };
+      const svg = await Vectorizer.vectorizeCanvas(canvasId, finalOptions);
+      
+      return { canvasId, canvas, svg };
     } catch (error) {
       canvasManager.cleanup(canvasId);
       throw error;

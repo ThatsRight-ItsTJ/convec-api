@@ -3,6 +3,7 @@ const multer = require('multer');
 const canvasManager = require('../canvas/canvas-manager');
 const BackgroundRemoval = require('../canvas/background-removal');
 const TextRenderer = require('../fonts/text-renderer');
+const Vectorizer = require('../vectorization/vectorizer');
 
 const router = express.Router();
 
@@ -293,31 +294,140 @@ router.post('/complete', upload.single('image'), async (req, res) => {
       targetColor = [255, 255, 255],
       tolerance = 10,
       scale = 1,
-      outputFormat = 'svg'
+      outputFormat = 'svg',
+      fillColor = '#000000',
+      threshold = 128,
+      turdsize = 5,
+      optcurve = true,
+      opttolerance = 1
     } = req.body;
 
     const { canvasId } = await canvasManager.initializeWithImage(req.file.buffer);
     
     // Remove background
-    const bgRemovedId = BackgroundRemoval.removeByColor(canvasId, targetColor, parseInt(tolerance));
+    let parsedTargetColor = targetColor;
+    if (typeof targetColor === 'string') {
+      if (targetColor.startsWith('#')) {
+        const hex = targetColor.slice(1);
+        parsedTargetColor = [
+          parseInt(hex.slice(0, 2), 16),
+          parseInt(hex.slice(2, 4), 16),
+          parseInt(hex.slice(4, 6), 16)
+        ];
+      } else {
+        parsedTargetColor = JSON.parse(targetColor);
+      }
+    }
     
-    // Get the processed canvas for vectorization
-    const { canvas } = canvasManager.getCanvas(bgRemovedId);
+    const bgRemovedId = BackgroundRemoval.removeByColor(canvasId, parsedTargetColor, parseInt(tolerance));
     
-    // Return the canvas data for client-side vectorization
-    // In a real implementation, you would integrate with the Convec vectorization here
-    const dataURL = canvasManager.toDataURL(bgRemovedId, 'png');
+    // Vectorize the background-removed image
+    const vectorizeOptions = {
+      scale: parseFloat(scale),
+      fillColor,
+      threshold: parseInt(threshold),
+      turdsize: parseInt(turdsize),
+      optcurve: optcurve === 'true' || optcurve === true,
+      opttolerance: parseFloat(opttolerance)
+    };
     
-    res.json({
-      success: true,
-      processedImage: dataURL,
-      message: 'Background removed. Use client-side vectorization for SVG conversion.'
-    });
+    if (outputFormat === 'svg') {
+      const svg = await Vectorizer.vectorizeCanvas(bgRemovedId, vectorizeOptions);
+      
+      res.setHeader('Content-Type', 'image/svg+xml');
+      res.setHeader('Content-Disposition', 'attachment; filename="vectorized_background_removed.svg"');
+      res.send(svg);
+    } else if (outputFormat === 'path') {
+      const pathData = await Vectorizer.generatePathData(bgRemovedId, vectorizeOptions);
+      
+      res.json({
+        success: true,
+        pathData: pathData,
+        width: canvasManager.getCanvas(bgRemovedId).canvas.width * parseFloat(scale),
+        height: canvasManager.getCanvas(bgRemovedId).canvas.height * parseFloat(scale)
+      });
+    } else {
+      // Return processed PNG
+      const resultBuffer = canvasManager.toBuffer(bgRemovedId, outputFormat);
+      
+      res.setHeader('Content-Type', `image/${outputFormat}`);
+      res.setHeader('Content-Disposition', `attachment; filename="background_removed.${outputFormat}"`);
+      res.send(resultBuffer);
+    }
 
     canvasManager.cleanup(canvasId);
 
   } catch (error) {
     console.error('Complete processing error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/vectorize
+ * Pure vectorization without background removal
+ */
+router.post('/vectorize', upload.single('image'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No image file provided' });
+    }
+
+    const {
+      scale = 1,
+      outputFormat = 'svg',
+      fillColor = '#000000',
+      threshold = 128,
+      turdsize = 5,
+      optcurve = true,
+      opttolerance = 1,
+      preprocessing = {}
+    } = req.body;
+
+    const { canvasId } = await canvasManager.initializeWithImage(req.file.buffer);
+    
+    const vectorizeOptions = {
+      scale: parseFloat(scale),
+      fillColor,
+      threshold: parseInt(threshold),
+      turdsize: parseInt(turdsize),
+      optcurve: optcurve === 'true' || optcurve === true,
+      opttolerance: parseFloat(opttolerance)
+    };
+
+    // Parse preprocessing options
+    let parsedPreprocessing = preprocessing;
+    if (typeof preprocessing === 'string') {
+      try {
+        parsedPreprocessing = JSON.parse(preprocessing);
+      } catch (e) {
+        parsedPreprocessing = {};
+      }
+    }
+    
+    if (outputFormat === 'svg') {
+      const svg = await Vectorizer.vectorizeWithPreprocessing(canvasId, parsedPreprocessing, vectorizeOptions);
+      
+      res.setHeader('Content-Type', 'image/svg+xml');
+      res.setHeader('Content-Disposition', 'attachment; filename="vectorized.svg"');
+      res.send(svg);
+    } else if (outputFormat === 'path') {
+      const pathData = await Vectorizer.generatePathData(canvasId, vectorizeOptions);
+      
+      res.json({
+        success: true,
+        pathData: pathData,
+        width: canvasManager.getCanvas(canvasId).canvas.width * parseFloat(scale),
+        height: canvasManager.getCanvas(canvasId).canvas.height * parseFloat(scale)
+      });
+    } else {
+      return res.status(400).json({ error: 'Vectorization only supports svg or path output formats' });
+    }
+
+    canvasManager.cleanup(canvasId);
+
+  } catch (error) {
+    console.error('Vectorization error:', error);
     res.status(500).json({ error: error.message });
   }
 });

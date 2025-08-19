@@ -3,6 +3,7 @@ const multer = require('multer');
 const fontManager = require('../fonts/font-manager');
 const TextRenderer = require('../fonts/text-renderer');
 const config = require('../config/fonts');
+const Vectorizer = require('../vectorization/vectorizer');
 
 const router = express.Router();
 
@@ -230,7 +231,13 @@ router.post('/vectorize', async (req, res) => {
       width = 800,
       height = 400,
       alignment = 'left',
-      effects = {}
+      effects = {},
+      outputFormat = 'svg',
+      scale = 1,
+      threshold = 128,
+      turdsize = 2,
+      optcurve = true,
+      opttolerance = 0.5
     } = req.body;
 
     const options = {
@@ -244,18 +251,42 @@ router.post('/vectorize', async (req, res) => {
       effects: typeof effects === 'string' ? JSON.parse(effects) : effects
     };
 
-    const { canvasId, canvas } = await TextRenderer.renderToVectors(options);
+    const vectorizeOptions = {
+      scale: parseFloat(scale),
+      fillColor: color,
+      threshold: parseInt(threshold),
+      turdsize: parseInt(turdsize),
+      optcurve: optcurve === 'true' || optcurve === true,
+      opttolerance: parseFloat(opttolerance)
+    };
     
-    // For now, return the canvas as data URL
-    // In a full implementation, this would integrate with vectorization
-    const dataURL = canvas.toDataURL('image/png');
+    const { canvasId, canvas, svg } = await TextRenderer.renderToVectors(options, vectorizeOptions);
     
-    res.json({
-      success: true,
-      message: 'Text rendered. Use client-side vectorization for SVG conversion.',
-      image: dataURL,
-      canvasId: canvasId
-    });
+    try {
+      if (outputFormat === 'svg') {
+        res.setHeader('Content-Type', 'image/svg+xml');
+        res.setHeader('Content-Disposition', 'attachment; filename="vectorized_text.svg"');
+        res.send(svg);
+      } else if (outputFormat === 'path') {
+        const pathData = await Vectorizer.generatePathData(canvasId, vectorizeOptions);
+        
+        res.json({
+          success: true,
+          pathData: pathData,
+          width: canvas.width * parseFloat(scale),
+          height: canvas.height * parseFloat(scale)
+        });
+      } else {
+        res.json({
+          success: true,
+          message: 'Text vectorized successfully',
+          svg: svg
+        });
+      }
+    } finally {
+      // Cleanup canvas resources
+      require('../canvas/canvas-manager').cleanup(canvasId);
+    }
 
   } catch (error) {
     console.error('Text vectorize error:', error);
